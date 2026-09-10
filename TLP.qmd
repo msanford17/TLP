@@ -1,0 +1,624 @@
+---
+title: "TLP project"
+---
+```{r libraries}
+library(RColorBrewer)
+library(tidyverse)
+library(scales)
+library(patchwork)
+library(lubridate)
+library(readxl)
+library(cowplot)
+library(gridExtra)
+library(grid)
+```
+color setting
+```{r}
+RColorBrewer::display.brewer.all()
+RColorBrewer::display.brewer.pal(5, "Set2")
+RColorBrewer::brewer.pal(n=5,"Set2")
+
+col.15 <- "#3a5e8cFF"
+col.30 <- "#10a53dFF"
+col.ref <- "#541352FF"
+
+cols.sediment <- c("0" = col.ref, "15" = col.15, "30" = col.30)
+
+col.surf <- "#66C2A5"
+col.15cm <- "#FC8D62"
+col.30cm <- "#8DA0CB"
+
+cols.depth <- c("0" = col.surf, "15" = col.15cm, "30" = col.30cm)
+
+```
+reading in data
+```{r}
+meta <- read_excel("../../data/enviro/sediment_meta_data/meta_data.xlsx", sheet = "meta") |> 
+  mutate(TLP_treatment = factor(TLP_treatment, levels = c("0", "15", "30"))) |>
+  mutate(depth_cm = factor(depth_cm, levels = c("15", "30"))) |>
+  mutate(
+    date = as.Date(date, format = "%d/%m/%Y"),
+    time = gsub(".* ", "", time),
+    
+    time_stamp = as.POSIXct(paste(date, time), format = "%Y-%m-%d %H:%M", tz = ""),
+    
+    time_hours = as.numeric(format(time_stamp, "%H")) +
+      as.numeric(format(time_stamp, "%M")) / 60
+  )
+
+sample_key <- read_excel("../../sampling/TLP_sample_list.xlsx", sheet = "genomic")
+
+treatment_labels  = c("cord" = "Cordgrass",
+                      "muss" = "Mussels",
+                      "both" = "Cordgrass + Mussels",
+                      "bare" = "Control")
+TLP_treatment_labels  = c("0"="Reference",
+                     "15" = "Thin-TLP",
+                     "30" = "Thick-TLP")
+
+TLP_treatment_labels_legend  = c("0"="Reference",
+                     "15" = "Thin-TLP (+15 cm)",
+                     "30" = "Thick-TLP (+30 cm)")
+
+depth_labels = c("15" = "Shallow depth (15 cm)", 
+                        "30" = "Deep depth (30 cm)")
+
+
+```
+
+Sulfide
+```{r}
+sulfide <- read_excel("../../data/enviro/sulfide/sulfide.xlsx")
+
+sulfide_clean <- sulfide %>%
+  left_join(meta %>% select(plot, TLP_treatment) %>% distinct(), by = "plot") |>
+  mutate(TLP_treatment = factor(TLP_treatment, levels = c("0", "15", "30"))) |>
+  mutate(depth_cm = factor(depth_cm, levels = c("15", "30"))) |>
+  mutate(
+    date = as.Date(date, format = "%d/%m/%Y"),
+    time = gsub(".* ", "", time),
+    
+    time_stamp = as.POSIXct(paste(date, time), format = "%Y-%m-%d %H:%M", tz = ""),
+    
+    time_hours = as.numeric(format(time_stamp, "%H")) +
+      as.numeric(format(time_stamp, "%M")) / 60
+  )
+
+```
+
+Figure
+```{r}
+x.sulfide.Oct <- ggplot(
+  sulfide_clean,
+  aes(
+    x = TLP_treatment,
+    y = concentration_uM,
+    group = TLP_treatment,
+    color = TLP_treatment
+  )
+) +
+  geom_boxplot() +
+  geom_jitter(
+    width = 0.1,
+    size = 6,
+    alpha = 0.7
+  ) +
+  facet_wrap(~ depth_cm, nrow = 2,
+            strip.position = "right",
+            labeller = labeller(depth_cm = depth_labels)) +
+  scale_color_manual(
+    name = "TLP_treatment addition",
+    values = cols.sediment,
+    labels = TLP_treatment_labels
+  ) +
+    scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  labs(
+    title = "October 2025 downcore sulfide",
+    x = "TLP treatment addition",
+    y = "Sulfide concentration (µM)"
+  ) +
+    theme_light(base_size = 25) +  theme(legend.position = "none") 
+x.sulfide.Oct
+
+ggsave("../../figures/enviro/202510_sulfide.pdf", plot = x.sulfide.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_sulfide.png", plot = x.sulfide.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+
+```
+
+Sampling time 
+```{r}
+x.sulfide.time <- ggplot(
+  sulfide_clean,
+  aes(
+    x = TLP_treatment,
+    y = concentration_uM,
+    group = TLP_treatment,
+    color = time_hours
+  )
+) +
+  geom_boxplot() +
+  geom_jitter(
+    width = 0.1,
+    size = 6,
+    alpha = 0.7
+  ) +
+  facet_wrap(~ depth_cm, nrow = 2,
+            strip.position = "right",
+              labeller = labeller(depth_cm = depth_labels)) +
+  scale_color_continuous() +
+  scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  labs(
+    title = "October 2025 downcore sulfide",
+    x = "TLP treatment addition",
+    y = "Sulfide concentration (µM)"
+  ) +
+    theme_light(base_size = 25) +  theme(legend.position = "none") 
+x.sulfide.time
+
+ggsave("../../figures/enviro/202510_sulfide_time.pdf", plot = x.sulfide.time, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_sulfide_time.png", plot = x.sulfide.time, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+
+```
+Getting legend for presentations
+```{r}
+legend  <- x.sulfide.Oct +
+      scale_color_manual(
+    name = "TLP treatment addition",
+    values = cols.sediment,
+    labels = TLP_treatment_labels_legend
+  ) +
+  theme_light(base_size = 30)+
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 32),
+    legend.text = element_text(size = 28),
+    legend.key.height = unit(1.75, "cm"),
+    legend.key.width = unit(1.75, "cm"),
+    legend.spacing.y = unit(0.01, "cm"),
+    legend.margin = margin(1, 1, 1, 1, unit = "pt")
+  )+
+  guides(
+    color = guide_legend(
+      override.aes = list(
+        shape = 16,
+        size = 8,
+        alpha = 0.7,
+        linewidth = 1
+      )
+    )
+  )
+
+just_legend <- get_legend(legend)
+
+ggsave("../../figures/enviro/legend.png", just_legend, bg = "transparent") 
+ggsave("../../figures/enviro/legend.pdf", just_legend, bg = "transparent") 
+
+```
+
+DOC
+```{r}
+DOC_TDN <- read_excel("../../data/enviro/DOC_TDN/DOC_TN.xlsx")
+
+DOC_TDN_clean <- DOC_TDN %>%
+  left_join(meta %>% select(plot, TLP_treatment) %>% distinct(), by = "plot") |> 
+  mutate(TLP_treatment = factor(TLP_treatment, levels = c("0", "15", "30"))) |> 
+  mutate(depth_cm = factor(depth_cm, levels = c("15", "30"))) |> 
+  mutate(
+  date = as.Date(date, format = "%d/%m/%Y"),
+  time = gsub(".* ", "", time),
+  
+  time_stamp = as.POSIXct(
+    paste(date, time),
+    format = "%Y-%m-%d %H:%M",
+    tz = ""
+  ),
+  
+  time_hours = as.numeric(format(time_stamp, "%H")) +
+               as.numeric(format(time_stamp, "%M")) / 60
+)
+```
+
+Figure
+```{r}
+x.DOC.Oct <- ggplot(
+  DOC_TDN_clean,
+  aes(
+    x = TLP_treatment,
+    y = DOC_mgL,
+    group = TLP_treatment,
+    color = TLP_treatment
+  )
+) +
+  geom_boxplot() +
+  geom_jitter(
+    width = 0.1,
+    size = 6,
+    alpha = 0.7
+  ) +
+  facet_wrap(~ depth_cm, nrow = 2,
+            strip.position = "right",
+           labeller = labeller(depth_cm = depth_labels)) +
+  scale_color_manual(
+    name = "TLP treatment addition",
+    values = cols.sediment,
+    labels = TLP_treatment_labels
+  ) +
+    scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  labs(
+    title = "October 2025 downcore DOC",
+    x = "TLP treatment addition",
+    y = "DOC concentration (mg/L)"
+  ) +
+    theme_light(base_size = 25) +  theme(legend.position = "none") 
+x.DOC.Oct
+
+ggsave("../../figures/enviro/202510_DOC.pdf", plot = x.DOC.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_DOC.png", plot = x.DOC.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+
+```
+
+
+Sampling time 
+```{r}
+x.DOC.time <- ggplot(
+  DOC_TDN_clean,
+  aes(
+    x = TLP_treatment,
+    y = DOC_mgL,
+    group = TLP_treatment,
+    color = time_hours
+  )
+) +
+  geom_boxplot() +
+  geom_jitter(
+    width = 0.1,
+    size = 6,
+    alpha = 0.7
+  ) +
+  facet_wrap(~ depth_cm, nrow = 2,
+            strip.position = "right",
+           labeller = labeller(depth_cm = depth_labels)) +
+  scale_color_continuous() +
+  scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  labs(
+    title = "October 2025 downcore DOC",
+    x = "TLP treatment addition",
+    y = "DOC concentration (mg/L)"
+  ) +
+    theme_light(base_size = 25) +  theme(legend.position = "none") 
+x.DOC.time
+
+ggsave("../../figures/enviro/202510_DOC_time.pdf", plot = x.DOC.time, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_DOC_time.png", plot = x.DOC.time, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+
+```
+
+
+TDN
+Figure
+```{r}
+x.TDN.Oct <- ggplot(
+  DOC_TDN_clean,
+  aes(
+    x = TLP_treatment,
+    y = TN_mgL,
+    group = TLP_treatment,
+    color = TLP_treatment
+  )
+) +
+  geom_boxplot() +
+  geom_jitter(
+    width = 0.1,
+    size = 6,
+    alpha = 0.7
+  ) +
+  facet_wrap(~ depth_cm, nrow = 2,
+            strip.position = "right",
+            labeller = labeller(depth_cm = depth_labels)) +
+  scale_color_manual(
+    name = "TLP treatment addition",
+    values = cols.sediment,
+    labels = TLP_treatment_labels
+  ) +
+    scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  labs(
+    title = "October 2025 downcore TDN",
+    x = "TLP_treatment addition",
+    y = "TDN concentration (mg/L)"
+  ) +
+    theme_light(base_size = 25) +  theme(legend.position = "none") 
+x.TDN.Oct
+
+ggsave("../../figures/enviro/202510_TDN.pdf", plot = x.TDN.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_TDN.png", plot = x.TDN.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+
+```
+
+
+Sampling time 
+```{r}
+x.TDN.time <- ggplot(
+  DOC_TDN_clean,
+  aes(
+    x = TLP_treatment,
+    y = TN_mgL,
+    group = TLP_treatment,
+    color = time_hours
+  )
+) +
+  geom_boxplot() +
+  geom_jitter(
+    width = 0.1,
+    size = 6,
+    alpha = 0.7
+  ) +
+  facet_wrap(~ depth_cm, nrow = 2,
+            strip.position = "right",
+            labeller = labeller(depth_cm = depth_labels)) +
+  scale_color_continuous() +
+  scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  labs(
+    title = "October 2025 downcore TDN",
+    x = "TLP treatment addition",
+    y = "TDN concentration (mg/L)"
+  ) +
+    theme_light(base_size = 25) +  theme(legend.position = "none") 
+x.TDN.time
+
+ggsave("../../figures/enviro/202510_TDN_time.pdf", plot = x.TDN.time, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_TDN_time.png", plot = x.TDN.time, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+
+```
+
+
+redox
+```{r}
+redox <- read_excel("../../data/enviro/redox/all_redox.xlsx")
+
+redox_clean <- redox %>%
+  filter(plot %in% c("1","2","3", "4","5","6","7","8","9","10","11","12")) |> 
+  mutate(plot = factor(plot, levels = c("1","2","3", "4","5","6","7","8","9","10","11","12"))) |> 
+  mutate(subplot = factor(subplot, levels = c("A","B","C", "D"))) |> 
+  mutate(treatment = factor(treatment, levels = c("cord","muss", "both", "bare"))) |> 
+  mutate(TLP_treatment = factor(TLP_treatment, levels = c("15","30", "0"))) |> 
+  filter(!(TLP_treatment == 30 & depth_cm == 25 ),
+         !(TLP_treatment == 15 & depth_cm == 20),
+         !(TLP_treatment == 15 & depth_cm == 21)) # clean up some offshoot measurements with only one datapoint
+
+unique(redox_clean$depth_cm[redox_clean$month == "august"])
+
+redox_depth_clean <- redox_clean %>%
+  # dplyr::filter(month == "august") |> 
+  filter(!depth_cm %in% c("21", "25")) |> 
+  mutate(depth_cm = factor(depth_cm, levels = c("30","25","20", "15","10","5", "2.5")))
+
+redox_mean_depth_clean <- redox_depth_clean |> 
+  group_by(TLP_treatment, depth_cm) |> 
+  summarise(average = mean(redox_mv)) |> 
+  ungroup()
+
+sediment_labels  = c("15" = "+15 cm",
+                     "30" = "+30 cm",
+                     "ref" = "Reference marsh")
+
+x.redox <- redox_depth_clean |> 
+  ggplot(aes(x = factor(depth_cm), y = redox_mv))+
+  # geom_violin(size = 1, trim = FALSE)+
+  geom_boxplot(aes(fill = TLP_treatment),width = .5, size = 1, outliers = F)+
+  geom_jitter(aes(color = treatment), size = 2, alpha = .5)+
+  scale_fill_brewer(name = "Sediment addition", palette = "Set2")+
+  scale_color_brewer(name = "Treatment", palette = "Set1")+
+  facet_wrap(~TLP_treatment,
+             # scales = "free_y",
+             ncol = 3,
+             labeller = labeller(TLP_treatment = TLP_treatment_labels))+
+  geom_line(data = redox_mean_depth_clean,
+            aes(x = factor(depth_cm), y = average, group = 1),
+            linewidth = 1.5,
+            color = "red")+
+  coord_flip()+
+  theme_cowplot()+
+  theme(
+    plot.title = element_text(size = 20),
+    strip.text = element_text(colour = "black"),
+    strip.placement = "outside",
+    strip.background = element_rect(
+      fill = "NA", 
+      color = "black", 
+      linewidth = 1),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    panel.border = element_rect(fill = NA, color = "black"),
+    panel.grid.major = element_line(color = "grey85", linewidth = 0.25),
+    panel.grid.minor = element_line(color = "grey85", linewidth = 0.25),
+    panel.spacing = unit(0.5, "cm"))+
+  labs(
+    x = "Depth (cm)",
+    y = "Redox (mV)"
+  )
+x.redox
+```
+
+
+```{r}
+redox_depth_clean |> 
+  ggplot(aes(x = factor(), y = redox_mv))+
+  geom_boxplot(aes(fill = sediment),width = .5, size = 1, outliers = F)+
+```
+
+
+
+qpcr
+
+```{r}
+##### Libraries #####
+library(RColorBrewer)
+library(tidyverse)
+library(scales)
+library(patchwork)
+library(lubridate)
+library(readxl)
+library(cowplot)
+##### Metadata #####
+
+treatment_labels  = c("cord" = "Cordgrass",
+                      "muss" = "Mussels",
+                      "both" = "Cordgrass + Mussels",
+                      "bare" = "Control")
+sediment_labels  = c("15" = "15 cm",
+                     "30" = "30 cm")
+
+### run 1
+
+qpcr <- read_csv("../../data/genomic/qPCR/20260902_TLP/20260902_TLP_test_Replicate Group Result_20260902_163725.csv", skip= 24) |> 
+  mutate(
+    sample_id = gsub("_1:10", "", Sample) %>%   
+      gsub("_", "", .)
+  ) |> 
+  mutate(
+    run_type = case_when(
+      str_detect(sample_id, "^STD") ~ "Standard",
+      TRUE                     ~ "Sample"
+    )
+  )
+
+```
+
+
+```{r}
+stds <- qpcr |> 
+  filter(run_type == "Standard") |> 
+  mutate(
+    copies = as.numeric(gsub("\\s*(\\S+).*$", "\\1", Quantity))
+  ) |> 
+  select(sample_id, copies, `Cq Mean`)
+
+ggplot(stds, aes(x = copies, y = `Cq Mean`)) +
+  geom_point(size = 3) +
+  scale_x_log10() +
+  geom_smooth(
+    method = "lm",
+    se = FALSE
+  ) +
+  labs(
+    x = "Copies (log10)",
+    y = "Cq Mean"
+  ) +
+  theme_light(base_size = 16)
+
+
+std_curve <- lm(`Cq Mean` ~ log10(copies), data = stds)
+slope <- coef(std_curve)[2]
+efficiency <- (10^(-1 / slope) - 1) * 100
+efficiency
+
+meas_std <- tibble(
+  sample_id = c(
+    "STD - 100000000",
+    "STD - 1.0e+7",
+    "STD - 1.0e+6",
+    "STD - 1.0e+5",
+    "STD - 1.0e+4",
+    "STD - 1.0e+3",
+    "STD - 1.0e+2",
+    "STD - 10"
+  ),
+  measured_cps = c(
+    1.29e8,
+    1.29e7,
+    1.29e6,
+    1.29e5,
+    1.29e4,
+    1.29e3,
+    1.29e2,
+    1.29e1
+  )
+)
+
+full_stds <- stds |> 
+  left_join(meas_std, by = "sample_id")
+
+ggplot(full_stds, aes(x = measured_cps, y = `Cq Mean`)) +
+  geom_point(size = 3) +
+  scale_x_log10() +
+  geom_smooth(
+    method = "lm",
+    se = FALSE
+  ) +
+  labs(
+    x = "Copies (log10)",
+    y = "Cq Mean"
+  ) +
+  theme_light(base_size = 16)
+#cq = int + slope * log10(cps)
+std_curve <- lm(`Cq Mean` ~ log10(measured_cps), data = full_stds)
+slope <- coef(std_curve)[2] #m
+int <- coef(std_curve)[1] #b
+
+#10^(-1/m) − 1
+efficiency <- (10^(-1 / slope) - 1) * 100
+efficiency
+
+summary(std_curve)
+
+```
+
+
+```{r}
+#Concentration = 10^((Cq − b)/m)
+samples <- qpcr %>%
+  filter(run_type == "Sample") %>%
+  mutate(
+    copies_per_uL = 10^(
+      (`Cq Mean` - int) /
+      slope)
+  )
+
+samples_meta <- samples |> 
+  left_join(meta, by = "sample_id") |> 
+  filter(!sample_id == "NTC") |> 
+  select(sample_id, date, plot, subplot, treatment, TLP_treatment, depth_cm, depth_cat,water_loss_percent, elution_volume, input_mass_mg,input_mass_mg_dry,
+         `Cq Mean`, `Cq SD`, `Cq SE`, copies_per_uL)
+
+ggplot(data = samples_meta)+ 
+  geom_boxplot(aes(x = depth_cat  , y = copies_per_uL))
+
+```
+
+
+Normalizaiton 
+```{r}
+template_ul        <- 2
+dilution_factor    <- 10
+efficiency         <- .83
+
+samples_normalization <- samples_meta %>%
+  mutate(
+    original_copies_per_uL = (copies_per_uL * dilution_factor),
+    orginal_copies_per_rxn = (original_copies_per_uL * template_ul), 
+    elution_norm_cps = (orginal_copies_per_rxn * elution_volume),
+    copies_per_g = (elution_norm_cps) / (input_mass_mg/1000)
+  ) 
+
+ggplot(data = samples_normalization)+ 
+  geom_boxplot(aes(x = depth_cat  , y = copies_per_g))+
+  geom_point(aes(x = depth_cat  , y = copies_per_g, color = TLP_treatment))
+```
+
+
+
+
+
+
