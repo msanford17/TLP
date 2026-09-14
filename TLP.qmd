@@ -558,6 +558,7 @@ x.redox <- ggplot(redox_filtered, aes(x = TLP_treatment,
                            y = redox_mv,group = TLP_treatment,
                            fill = TLP_treatment)) +
   geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+
   geom_jitter(
     width = 0.1,
     size = 4,
