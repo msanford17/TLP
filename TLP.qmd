@@ -27,7 +27,14 @@ col.15 <- "#3a5e8cFF"
 col.30 <- "#10a53dFF"
 col.ref <- "#541352FF"
 
+col.15.1 <-"#91b6e5ff"
+col.30.1 <- "#84e3a1ff"
+col.ref.1 <- "#e38ee1ff"
+
+
 cols.sediment <- c("0" = col.ref, "15" = col.15, "30" = col.30)
+cols.sediment.light <- c("0" = col.ref.1, "15" = col.15.1, "30" = col.30.1)
+
 
 col.surf <- "#66C2A5"
 col.15cm <- "#FC8D62"
@@ -65,7 +72,8 @@ TLP_treatment_labels_legend  = c("0"="Reference",
                      "15" = "Thin-TLP (+15 cm)",
                      "30" = "Thick-TLP (+30 cm)")
 
-depth_labels = c("15" = "Shallow depth (15 cm)", 
+depth_labels = c("5" = "Surface depth (5 cm)",
+  "15" = "Shallow depth (15 cm)", 
                         "30" = "Deep depth (30 cm)")
 
 
@@ -546,16 +554,41 @@ pairs(emm, adjust = "tukey")
 ```{r}
 emm_df <- as.data.frame(emm)
 
-ggplot( redox_filtered,aes(x = TLP_treatment, 
+x.redox <- ggplot(redox_filtered, aes(x = TLP_treatment, 
                            y = redox_mv,group = TLP_treatment,
                            fill = TLP_treatment)) +
-  geom_boxplot(outlier.shape = NA) +
-  geom_jitter(aes(color = TLP_treatment),
-              width = 0.3,
-              size = 3,
-              alpha = 0.7
-              ) +
-  facet_wrap(~depth_cm)
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(
+    width = 0.1,
+    size = 4,
+    alpha = 0.7, aes(color = TLP_treatment)
+  ) +
+  scale_color_manual(
+    name = "TLP_treatment addition",
+    values = cols.sediment,
+    labels = TLP_treatment_labels
+  ) +
+  scale_fill_manual(
+    name = "TLP_treatment addition",
+    values = cols.sediment.light,
+    labels = TLP_treatment_labels
+  ) +
+  scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  facet_wrap(~depth_cm, nrow=3,
+             strip.position = "right",
+             labeller = labeller(depth_cm = depth_labels))+
+  labs(
+    title = "2025-2026 Redox",
+    x = "TLP treatment addition",
+    y = "Redox (mV)"
+  ) +
+  theme_light(base_size = 25) +  theme(legend.position = "none") 
+
+ggsave("../../figures/enviro/all_redox.pdf", plot = x.redox, units = "in", dpi = 300, width = 7, height = 11, bg = "white")
+ggsave("../../figures/enviro/all_redox.png", plot = x.redox, units = "in", dpi = 300, width = 7, height = 11, bg = "white")
+
 ```
 
 
@@ -679,8 +712,7 @@ ggplot(data = samples_meta)+
 ggplot(data = samples_meta)+ 
   geom_boxplot(aes(x = TLP_treatment  , y = copies_per_uL)) +
   geom_point(aes(x = TLP_treatment  , y = copies_per_uL, color = depth_cat),
-             size = 5) |> 
-  facet_wrap(~depth_cat)
+             size = 5)
 ```
 
 
