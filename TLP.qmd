@@ -11,6 +11,11 @@ library(readxl)
 library(cowplot)
 library(gridExtra)
 library(grid)
+library(glmmTMB)
+library(emmeans) 
+library(car)
+library(DHARMa)
+library(performance)
 ```
 color setting
 ```{r}
@@ -383,37 +388,65 @@ ggsave("../../figures/enviro/202510_TDN_time.png", plot = x.TDN.time, units = "i
 ```
 
 
-redox
+# Redox
+Cleaning data frame
 ```{r}
 redox <- read_excel("../../data/enviro/redox/all_redox.xlsx")
+
+hist(redox$redox_mv) #big outlier at -1000 mv removing
 
 redox_clean <- redox %>%
   filter(plot %in% c("1","2","3", "4","5","6","7","8","9","10","11","12")) |> 
   mutate(plot = factor(plot, levels = c("1","2","3", "4","5","6","7","8","9","10","11","12"))) |> 
   mutate(subplot = factor(subplot, levels = c("A","B","C", "D"))) |> 
   mutate(treatment = factor(treatment, levels = c("cord","muss", "both", "bare"))) |> 
-  mutate(TLP_treatment = factor(TLP_treatment, levels = c("15","30", "0"))) |> 
+  mutate(TLP_treatment = factor(TLP_treatment, levels = c("0", "15","30"))) |> 
   filter(!(TLP_treatment == 30 & depth_cm == 25 ),
          !(TLP_treatment == 15 & depth_cm == 20),
-         !(TLP_treatment == 15 & depth_cm == 21)) # clean up some offshoot measurements with only one datapoint
+         !(TLP_treatment == 15 & depth_cm == 21)) |>  # clean up some offshoot measurements with only one datapoint
+  mutate(depth_cm = factor(depth_cm, levels = c("30","25","20", "15","10","5", "2.5"))) |> 
+  filter(!redox_mv < -500) |> 
+  mutate(
+    date = as.Date(date, format = "%d/%m/%Y"),
+    time = gsub(".* ", "", time),
+    
+    time_stamp = as.POSIXct(paste(date, time), format = "%Y-%m-%d %H:%M", tz = ""),
+    
+    time_hours = as.numeric(format(time_stamp, "%H")) +
+      as.numeric(format(time_stamp, "%M")) / 60
+  )
 
+hist(redox_clean$redox_mv) #better
+```
+```{r}
 unique(redox_clean$depth_cm[redox_clean$month == "august"])
 
+table(redox_clean$TLP_treatment,
+      redox_clean$depth_cm)
+
 redox_depth_clean <- redox_clean %>%
-  # dplyr::filter(month == "august") |> 
-  filter(!depth_cm %in% c("21", "25")) |> 
-  mutate(depth_cm = factor(depth_cm, levels = c("30","25","20", "15","10","5", "2.5")))
+  filter(depth_cm %in% c("5", "15", "30")) |> 
+  mutate(depth_cm = factor(depth_cm, levels = c("5", "15", "30")))
 
 redox_mean_depth_clean <- redox_depth_clean |> 
   group_by(TLP_treatment, depth_cm) |> 
   summarise(average = mean(redox_mv)) |> 
   ungroup()
 
+redox_filtered <- redox_depth_clean %>%
+  filter(
+    TLP_treatment == "0" |
+    (treatment == "bare" & TLP_treatment %in% c("15", "30"))
+  )
+```
+
+Basic plot
+```{r}
 sediment_labels  = c("15" = "+15 cm",
                      "30" = "+30 cm",
                      "ref" = "Reference marsh")
 
-x.redox <- redox_depth_clean |> 
+x.redox <- redox_filtered |> 
   ggplot(aes(x = factor(depth_cm), y = redox_mv))+
   # geom_violin(size = 1, trim = FALSE)+
   geom_boxplot(aes(fill = TLP_treatment),width = .5, size = 1, outliers = F)+
@@ -452,12 +485,78 @@ x.redox
 ```
 
 
+
 ```{r}
-redox_depth_clean |> 
-  ggplot(aes(x = factor(), y = redox_mv))+
-  geom_boxplot(aes(fill = sediment),width = .5, size = 1, outliers = F)+
+
+lm1 <- glmmTMB(redox_mv ~ TLP_treatment * depth_cm + (1 | plot),
+               data = redox_filtered)
+summary(lm1)
+hist(resid(lm1)) 
+plot(residuals(lm1)~fitted(lm1))
+
+lm1_resid <- simulateResiduals(lm1) 
+plot(lm1_resid) 
+testUniformity(lm1_resid)
+testDispersion(lm1_resid)
+testOutliers(lm1_resid)
+check_model(lm1)
+
+check_autocorrelation(lm1)
 ```
 
+
+```{r}
+Anova(lm1, type=2) 
+```
+
+```{r}
+emm <- emmeans(lm1, ~ TLP_treatment | depth_cm)
+summ_emm <- summary(emm)
+# depth_cm = 30:
+#  TLP_treatment emmean   SE  df asymp.LCL asymp.UCL
+#  15            -364.9 19.2 Inf    -402.5   -327.38
+#  30            -287.7 19.5 Inf    -325.9   -249.49
+#  0             -361.0 16.7 Inf    -393.7   -328.38
+# 
+# depth_cm = 15:
+#  TLP_treatment emmean   SE  df asymp.LCL asymp.UCL
+#  15            -244.1 19.2 Inf    -281.6   -206.53
+#  30            -100.2 19.5 Inf    -138.4    -61.94
+#  0             -330.5 16.7 Inf    -363.2   -297.85
+# 
+# depth_cm = 5:
+#  TLP_treatment emmean   SE  df asymp.LCL asymp.UCL
+#  15             -99.4 20.1 Inf    -138.8    -59.95
+#  30             -34.9 20.1 Inf     -74.4      4.49
+#  0             -187.5 17.0 Inf    -220.8   -154.22
+
+anova_means <- emmeans(lm1, pairwise~TLP_treatment) 
+# 
+# $contrasts
+#  contrast                          estimate   SE  df z.ratio p.value
+#  TLP_treatment15 - TLP_treatment30    -95.2 21.8 Inf  -4.366 <0.0001
+#  TLP_treatment15 - TLP_treatment0      56.9 21.0 Inf   2.714  0.0183
+#  TLP_treatment30 - TLP_treatment0     152.1 21.0 Inf   7.229 <0.0001
+# 
+# P value adjustment: tukey method for comparing a family of 3 estimates 
+# 
+pairs(emm, adjust = "tukey")
+```
+
+```{r}
+emm_df <- as.data.frame(emm)
+
+ggplot( redox_filtered,aes(x = TLP_treatment, 
+                           y = redox_mv,group = TLP_treatment,
+                           fill = TLP_treatment)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(aes(color = TLP_treatment),
+              width = 0.3,
+              size = 3,
+              alpha = 0.7
+              ) +
+  facet_wrap(~depth_cm)
+```
 
 
 qpcr
@@ -482,14 +581,16 @@ sediment_labels  = c("15" = "15 cm",
 
 ### run 1
 
-qpcr <- read_csv("../../data/genomic/qPCR/20260902_TLP/20260902_TLP_test_Replicate Group Result_20260902_163725.csv", skip= 24) |> 
+qpcr <- read_csv("../../data/genomic/qPCR/20260910_TLP_priorityA_run1/20260910_TLP_priorityA_run1_Results_20260911_084712.csv", skip= 24) |> 
   mutate(
-    sample_id = gsub("_1:10", "", Sample) %>%   
-      gsub("_", "", .)
+    sample = Sample) |> 
+  mutate(
+    sample_id = str_extract(sample, "^TLP\\d+"),
+    replicate = as.numeric(str_extract(sample, "(?<=_)\\d+$"))
   ) |> 
   mutate(
     run_type = case_when(
-      str_detect(sample_id, "^STD") ~ "Standard",
+      str_detect(sample, "^STD") ~ "Standard",
       TRUE                     ~ "Sample"
     )
   )
@@ -501,56 +602,16 @@ qpcr <- read_csv("../../data/genomic/qPCR/20260902_TLP/20260902_TLP_test_Replica
 stds <- qpcr |> 
   filter(run_type == "Standard") |> 
   mutate(
-    copies = as.numeric(gsub("\\s*(\\S+).*$", "\\1", Quantity))
+    copies = as.numeric(sub("STD - ", "", sample))
   ) |> 
-  select(sample_id, copies, `Cq Mean`)
-
-ggplot(stds, aes(x = copies, y = `Cq Mean`)) +
-  geom_point(size = 3) +
-  scale_x_log10() +
-  geom_smooth(
-    method = "lm",
-    se = FALSE
-  ) +
-  labs(
-    x = "Copies (log10)",
-    y = "Cq Mean"
-  ) +
-  theme_light(base_size = 16)
-
-
-std_curve <- lm(`Cq Mean` ~ log10(copies), data = stds)
-slope <- coef(std_curve)[2]
-efficiency <- (10^(-1 / slope) - 1) * 100
-efficiency
-
-meas_std <- tibble(
-  sample_id = c(
-    "STD - 100000000",
-    "STD - 1.0e+7",
-    "STD - 1.0e+6",
-    "STD - 1.0e+5",
-    "STD - 1.0e+4",
-    "STD - 1.0e+3",
-    "STD - 1.0e+2",
-    "STD - 10"
-  ),
-  measured_cps = c(
-    1.29e8,
-    1.29e7,
-    1.29e6,
-    1.29e5,
-    1.29e4,
-    1.29e3,
-    1.29e2,
-    1.29e1
+  select(sample, copies, `Cq Mean`) |> 
+    group_by(sample, copies) %>%
+  summarise(
+    Cq_mean = mean(`Cq Mean`, na.rm = TRUE),
+    .groups = "drop"
   )
-)
 
-full_stds <- stds |> 
-  left_join(meas_std, by = "sample_id")
-
-ggplot(full_stds, aes(x = measured_cps, y = `Cq Mean`)) +
+ggplot(stds, aes(x = copies, y = Cq_mean)) +
   geom_point(size = 3) +
   scale_x_log10() +
   geom_smooth(
@@ -562,14 +623,13 @@ ggplot(full_stds, aes(x = measured_cps, y = `Cq Mean`)) +
     y = "Cq Mean"
   ) +
   theme_light(base_size = 16)
-#cq = int + slope * log10(cps)
-std_curve <- lm(`Cq Mean` ~ log10(measured_cps), data = full_stds)
-slope <- coef(std_curve)[2] #m
-int <- coef(std_curve)[1] #b
 
-#10^(-1/m) − 1
-efficiency <- (10^(-1 / slope) - 1) * 100
+
+std_curve <- lm(Cq_mean ~ log10(copies), data = stds)
+slope <- coef(std_curve)[2]
+efficiency <- (10^(-1 / slope) - 1) * 100 #10^(-1/m) − 1
 efficiency
+int <- coef(std_curve)[1] #b
 
 summary(std_curve)
 
@@ -578,11 +638,20 @@ summary(std_curve)
 
 ```{r}
 #Concentration = 10^((Cq − b)/m)
-samples <- qpcr %>%
+#
+qpcr_clean <-  qpcr |> 
+  filter(!sample %in% c("TLP37_1"))
+
+samples <- qpcr_clean %>%
   filter(run_type == "Sample") %>%
+  group_by(sample_id) %>%
+  summarise(
+    Cq_mean = mean(`Cq Mean`, na.rm = TRUE),
+    Cq_se = sd(Cq)
+  ) |> 
   mutate(
     copies_per_uL = 10^(
-      (`Cq Mean` - int) /
+      (Cq_mean - int) /
       slope)
   )
 
@@ -590,11 +659,28 @@ samples_meta <- samples |>
   left_join(meta, by = "sample_id") |> 
   filter(!sample_id == "NTC") |> 
   select(sample_id, date, plot, subplot, treatment, TLP_treatment, depth_cm, depth_cat,water_loss_percent, elution_volume, input_mass_mg,input_mass_mg_dry,
-         `Cq Mean`, `Cq SD`, `Cq SE`, copies_per_uL)
+         Cq_mean,Cq_se,copies_per_uL)
+
+
 
 ggplot(data = samples_meta)+ 
-  geom_boxplot(aes(x = depth_cat  , y = copies_per_uL))
+  geom_boxplot(aes(x = TLP_treatment  , y = copies_per_uL)) +
+  geom_point(aes(x = TLP_treatment  , y = copies_per_uL, color = Cq_se),
+             size = 5) 
+# +
+#   facet_wrap(~depth_cat)
 
+
+ggplot(data = samples_meta)+ 
+  geom_boxplot(aes(x = TLP_treatment  , y = copies_per_uL)) +
+  geom_point(aes(x = TLP_treatment  , y = copies_per_uL, color = depth_cat),
+             size = 5) 
+
+ggplot(data = samples_meta)+ 
+  geom_boxplot(aes(x = TLP_treatment  , y = copies_per_uL)) +
+  geom_point(aes(x = TLP_treatment  , y = copies_per_uL, color = depth_cat),
+             size = 5) |> 
+  facet_wrap(~depth_cat)
 ```
 
 
