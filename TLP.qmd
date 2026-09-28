@@ -24,17 +24,15 @@ RColorBrewer::display.brewer.pal(5, "Set2")
 RColorBrewer::brewer.pal(n=5,"Set2")
 
 col.15 <- "#3a5e8cFF"
-col.30 <- "#10a53dFF"
-col.ref <- "#541352FF"
+col.ref <- "#10a53dFF"
+col.30 <- "#541352FF"
 
 col.15.1 <-"#91b6e5ff"
-col.30.1 <- "#84e3a1ff"
-col.ref.1 <- "#e38ee1ff"
-
+col.ref.1 <- "#84e3a1ff"
+col.30.1 <- "#e38ee1ff"
 
 cols.sediment <- c("0" = col.ref, "15" = col.15, "30" = col.30)
 cols.sediment.light <- c("0" = col.ref.1, "15" = col.15.1, "30" = col.30.1)
-
 
 col.surf <- "#66C2A5"
 col.15cm <- "#FC8D62"
@@ -42,12 +40,17 @@ col.30cm <- "#8DA0CB"
 
 cols.depth <- c("0" = col.surf, "15" = col.15cm, "30" = col.30cm)
 
+col.m25<- "#9970AB"
+col.o25 <- "#762A83"
+col.m26 <- "#40004B"
+
+cols.monthyear <- c("May2025" = col.m25, "Oct2025" = col.o25, "May2026" = col.m26)
+
 ```
 reading in data
 ```{r}
-meta <- read_excel("../../data/enviro/sediment_meta_data/meta_data.xlsx", sheet = "meta") |> 
-  mutate(TLP_treatment = factor(TLP_treatment, levels = c("0", "15", "30"))) |>
-  mutate(depth_cm = factor(depth_cm, levels = c("15", "30"))) |>
+meta <- read_excel("../../data/enviro/sediment_meta_data/meta_data.xlsx",
+                   sheet = "meta") |>
   mutate(
     date = as.Date(date, format = "%d/%m/%Y"),
     time = gsub(".* ", "", time),
@@ -56,7 +59,35 @@ meta <- read_excel("../../data/enviro/sediment_meta_data/meta_data.xlsx", sheet 
     
     time_hours = as.numeric(format(time_stamp, "%H")) +
       as.numeric(format(time_stamp, "%M")) / 60
-  )
+  ) |>
+  mutate(
+    added_sediment = as.numeric(TLP_treatment),
+    added_sediment = ifelse(is.na(added_sediment), 0, added_sediment)
+  ) |>
+  mutate(
+    depth_start = -as.numeric(str_extract(depth_cm, "^\\d+")),
+    depth_end   = -as.numeric(str_extract(depth_cm, "(?<=-)[\\d]+"))
+  ) |>
+  mutate(
+    abs_start = depth_start + added_sediment,
+    abs_end   = depth_end   + added_sediment,
+    abs_mid   = (abs_start + abs_end) / 2
+  ) |>
+  mutate(abs_range = paste0(abs_start, "-", abs_end)) |>
+  mutate(TLP_treatment = factor(TLP_treatment, levels = c("0", "15", "30"))) |>
+  mutate(depth_cm_factor = factor(depth_cm)) |>
+  mutate(year = format(date, "%Y"),
+         month_year = format(date, "%b%Y"),
+         month_year = factor(month_year, 
+                             levels = c("May2025", 
+                                        "Oct2025",
+                                        "May2026")))
+meta
+
+adam_meta <- read.csv("../../data/TLP_plotmetadata.csv") |> 
+  select(plot, subplot, sediment, transplant) |> 
+  rename(TLP_treatment = sediment) |> 
+    mutate(TLP_treatment = factor(TLP_treatment, levels = c("0", "15", "30")))
 
 sample_key <- read_excel("../../sampling/TLP_sample_list.xlsx", sheet = "genomic")
 
@@ -75,7 +106,12 @@ TLP_treatment_labels_legend  = c("0"="Reference",
 depth_labels = c("5" = "Surface depth (5 cm)",
   "15" = "Shallow depth (15 cm)", 
                         "30" = "Deep depth (30 cm)")
+depth_labels_plot_cat = c("surface" = "Surface depth (0-5 cm)",
+                          "at_depth" = "Deep depth (~5-10 cm absolute depth)")
 
+monthyear_labels  = c("May2025"="May 2025",
+                     "Oct25" = "October 2025",
+                     "May2026" = "May 2025")
 
 ```
 
@@ -86,7 +122,7 @@ sulfide <- read_excel("../../data/enviro/sulfide/sulfide.xlsx")
 sulfide_clean <- sulfide %>%
   left_join(meta %>% select(plot, TLP_treatment) %>% distinct(), by = "plot") |>
   mutate(TLP_treatment = factor(TLP_treatment, levels = c("0", "15", "30"))) |>
-  mutate(depth_cm = factor(depth_cm, levels = c("15", "30"))) |>
+  mutate(depth_cm_factor = factor(depth_cm, levels = c("15", "30"))) |>
   mutate(
     date = as.Date(date, format = "%d/%m/%Y"),
     time = gsub(".* ", "", time),
@@ -98,6 +134,15 @@ sulfide_clean <- sulfide %>%
   )
 
 ```
+summary 
+```{r}
+sulfide_sum <- sulfide_clean |> 
+  group_by(TLP_treatment, depth_cm) |> 
+  summarise(mean_sul = mean(concentration_uM),
+            sd_sul = sd(concentration_uM))
+sulfide_sum
+```
+
 
 Figure
 ```{r}
@@ -107,14 +152,14 @@ x.sulfide.Oct <- ggplot(
     x = TLP_treatment,
     y = concentration_uM,
     group = TLP_treatment,
-    color = TLP_treatment
+    fill = TLP_treatment
   )
 ) +
-  geom_boxplot() +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
   geom_jitter(
     width = 0.1,
-    size = 6,
-    alpha = 0.7
+    size = 4,
+    alpha = 0.7, aes(color = TLP_treatment)
   ) +
   facet_wrap(~ depth_cm, nrow = 2,
             strip.position = "right",
@@ -122,6 +167,11 @@ x.sulfide.Oct <- ggplot(
   scale_color_manual(
     name = "TLP_treatment addition",
     values = cols.sediment,
+    labels = TLP_treatment_labels
+  ) +
+   scale_fill_manual(
+    name = "TLP_treatment addition",
+    values = cols.sediment.light,
     labels = TLP_treatment_labels
   ) +
     scale_x_discrete(
@@ -135,8 +185,8 @@ x.sulfide.Oct <- ggplot(
     theme_light(base_size = 25) +  theme(legend.position = "none") 
 x.sulfide.Oct
 
-ggsave("../../figures/enviro/202510_sulfide.pdf", plot = x.sulfide.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
-ggsave("../../figures/enviro/202510_sulfide.png", plot = x.sulfide.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_sulfide.pdf", plot = x.sulfide.Oct, units = "in", dpi = 300, width = 5, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_sulfide.png", plot = x.sulfide.Oct, units = "in", dpi = 300, width = 5, height = 8, bg = "white")
 
 ```
 
@@ -233,7 +283,19 @@ DOC_TDN_clean <- DOC_TDN %>%
   time_hours = as.numeric(format(time_stamp, "%H")) +
                as.numeric(format(time_stamp, "%M")) / 60
 )
+
+
 ```
+summary
+```{r}
+DOC_TDN_sum <- DOC_TDN_clean |> 
+  group_by(TLP_treatment, depth_cm) |> 
+  summarise(mean_doc = mean(DOC_mgL),
+            sd_doc = sd(DOC_mgL),
+            mean_tdn = mean(TN_mgL),
+            sd_tdn = sd(TN_mgL))
+```
+
 
 Figure
 ```{r}
@@ -243,14 +305,15 @@ x.DOC.Oct <- ggplot(
     x = TLP_treatment,
     y = DOC_mgL,
     group = TLP_treatment,
-    color = TLP_treatment
+    fill = TLP_treatment
   )
 ) +
-  geom_boxplot() +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
   geom_jitter(
     width = 0.1,
-    size = 6,
-    alpha = 0.7
+    size = 4,
+    alpha = 0.7, aes(color = TLP_treatment)
+
   ) +
   facet_wrap(~ depth_cm, nrow = 2,
             strip.position = "right",
@@ -258,6 +321,11 @@ x.DOC.Oct <- ggplot(
   scale_color_manual(
     name = "TLP treatment addition",
     values = cols.sediment,
+    labels = TLP_treatment_labels
+  ) +
+    scale_fill_manual(
+    name = "TLP_treatment addition",
+    values = cols.sediment.light,
     labels = TLP_treatment_labels
   ) +
     scale_x_discrete(
@@ -271,8 +339,8 @@ x.DOC.Oct <- ggplot(
     theme_light(base_size = 25) +  theme(legend.position = "none") 
 x.DOC.Oct
 
-ggsave("../../figures/enviro/202510_DOC.pdf", plot = x.DOC.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
-ggsave("../../figures/enviro/202510_DOC.png", plot = x.DOC.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_DOC.pdf", plot = x.DOC.Oct, units = "in", dpi = 300, width = 5, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_DOC.png", plot = x.DOC.Oct, units = "in", dpi = 300, width = 5, height = 8, bg = "white")
 
 ```
 
@@ -324,14 +392,14 @@ x.TDN.Oct <- ggplot(
     x = TLP_treatment,
     y = TN_mgL,
     group = TLP_treatment,
-    color = TLP_treatment
+    fill = TLP_treatment
   )
 ) +
-  geom_boxplot() +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
   geom_jitter(
     width = 0.1,
-    size = 6,
-    alpha = 0.7
+    size = 4,
+    alpha = 0.7, aes(color = TLP_treatment)
   ) +
   facet_wrap(~ depth_cm, nrow = 2,
             strip.position = "right",
@@ -339,6 +407,11 @@ x.TDN.Oct <- ggplot(
   scale_color_manual(
     name = "TLP treatment addition",
     values = cols.sediment,
+    labels = TLP_treatment_labels
+  ) +
+    scale_fill_manual(
+    name = "TLP_treatment addition",
+    values = cols.sediment.light,
     labels = TLP_treatment_labels
   ) +
     scale_x_discrete(
@@ -352,8 +425,8 @@ x.TDN.Oct <- ggplot(
     theme_light(base_size = 25) +  theme(legend.position = "none") 
 x.TDN.Oct
 
-ggsave("../../figures/enviro/202510_TDN.pdf", plot = x.TDN.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
-ggsave("../../figures/enviro/202510_TDN.png", plot = x.TDN.Oct, units = "in", dpi = 300, width = 10, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_TDN.pdf", plot = x.TDN.Oct, units = "in", dpi = 300, width = 5, height = 8, bg = "white")
+ggsave("../../figures/enviro/202510_TDN.png", plot = x.TDN.Oct, units = "in", dpi = 300, width = 5, height = 8, bg = "white")
 
 ```
 
@@ -404,6 +477,10 @@ redox <- read_excel("../../data/enviro/redox/all_redox.xlsx")
 hist(redox$redox_mv) #big outlier at -1000 mv removing
 
 redox_clean <- redox %>%
+  mutate(temp_c = as.numeric(temp_c),
+         season = case_when(
+      str_detect(month, "may") ~ "Spring",
+      TRUE ~ "Fall")) |> 
   filter(plot %in% c("1","2","3", "4","5","6","7","8","9","10","11","12")) |> 
   mutate(plot = factor(plot, levels = c("1","2","3", "4","5","6","7","8","9","10","11","12"))) |> 
   mutate(subplot = factor(subplot, levels = c("A","B","C", "D"))) |> 
@@ -446,6 +523,15 @@ redox_filtered <- redox_depth_clean %>%
     TLP_treatment == "0" |
     (treatment == "bare" & TLP_treatment %in% c("15", "30"))
   )
+```
+
+summ 
+```{r}
+sulfide_sum <- sulfide_clean |> 
+  group_by(TLP_treatment, depth_cm) |> 
+  summarise(mean_sul = mean(concentration_uM),
+            sd_sul = sd(concentration_uM))
+sulfide_sum
 ```
 
 Basic plot
@@ -496,7 +582,7 @@ x.redox
 
 ```{r}
 
-lm1 <- glmmTMB(redox_mv ~ TLP_treatment * depth_cm + (1 | plot),
+lm1 <- glmmTMB(redox_mv ~ TLP_treatment + TLP_treatment * depth_cm + (1 | plot),
                data = redox_filtered)
 summary(lm1)
 hist(resid(lm1)) 
@@ -518,8 +604,11 @@ Anova(lm1, type=2)
 ```
 
 ```{r}
-emm <- emmeans(lm1, ~ TLP_treatment | depth_cm)
+emm <- emmeans(lm1, ~ TLP_treatment)
+emm_dep <- emmeans(lm1, ~ TLP_treatment | depth_cm)
 summ_emm <- summary(emm)
+
+
 # depth_cm = 30:
 #  TLP_treatment emmean   SE  df asymp.LCL asymp.UCL
 #  15            -364.9 19.2 Inf    -402.5   -327.38
@@ -539,16 +628,27 @@ summ_emm <- summary(emm)
 #  0             -187.5 17.0 Inf    -220.8   -154.22
 
 anova_means <- emmeans(lm1, pairwise~TLP_treatment) 
+anova_means_df <-  as.data.frame(anova_means)
 # 
 # $contrasts
+# $contrasts
 #  contrast                          estimate   SE  df z.ratio p.value
+#  TLP_treatment0 - TLP_treatment15     -56.9 21.0 Inf  -2.714  0.0183
+#  TLP_treatment0 - TLP_treatment30    -152.1 21.0 Inf  -7.229 <0.0001
 #  TLP_treatment15 - TLP_treatment30    -95.2 21.8 Inf  -4.366 <0.0001
-#  TLP_treatment15 - TLP_treatment0      56.9 21.0 Inf   2.714  0.0183
-#  TLP_treatment30 - TLP_treatment0     152.1 21.0 Inf   7.229 <0.0001
 # 
 # P value adjustment: tukey method for comparing a family of 3 estimates 
 # 
 pairs(emm, adjust = "tukey")
+
+#group means after accounting for the effect of depth:
+lm1_coef <- as.data.frame(emmeans(lm1, ~TLP_treatment))
+
+plot(pairs(emm_dep)) +
+         geom_vline(xintercept = 0, lty = 2 , alpha = 0.5) +
+         xlab("Estimated difference in Sepal Lengths")
+
+r2(lm1)   
 ```
 
 ```{r}
@@ -564,6 +664,7 @@ x.redox <- ggplot(redox_filtered, aes(x = TLP_treatment,
     size = 4,
     alpha = 0.7, aes(color = TLP_treatment)
   ) +
+   stat_summary(fun=mean, geom="point", size=5, color="red")+
   scale_color_manual(
     name = "TLP_treatment addition",
     values = cols.sediment,
@@ -592,8 +693,71 @@ ggsave("../../figures/enviro/all_redox.png", plot = x.redox, units = "in", dpi =
 
 ```
 
+```{r}
+#emmeans
+ggplot() +
+geom_jitter(data=redox_filtered,
+              aes(x = TLP_treatment, 
+                           y = redox_mv,group = TLP_treatment), 
+              height=0, 
+              width=.1) +
+  geom_point(data=lm1_coef, 
+             aes(x=TLP_treatment, y=emmean),
+             color="red", 
+             size=5) + 
+  geom_errorbar(data=lm1_coef,
+                aes(x=TLP_treatment,
+                    y=emmean, 
+                    ymin=(asymp.LCL), 
+                    ymax=(asymp.UCL)), 
+                width=.2, 
+                color="red", 
+                lwd=2) 
 
-qpcr
+emmip(lm1,  ~ TLP_treatment | depth_cm)
+
+emm_s.t <- emmeans(lm1, pairwise ~ TLP_treatment | depth_cm)
+```
+
+
+# temperature 
+```{r}
+x.temp <- ggplot(redox_filtered, aes(x = TLP_treatment, 
+                                     y = temp_c,group = TLP_treatment,
+                                     fill = TLP_treatment)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(
+    width = 0.1,
+    size = 4,
+    alpha = 0.7, aes(color = season)
+  ) +
+  # scale_color_manual(
+  #   name = "TLP_treatment addition",
+  #   values = cols.sediment,
+  #   labels = TLP_treatment_labels
+  # ) +
+  scale_fill_manual(
+    name = "TLP_treatment addition",
+    values = cols.sediment.light,
+    labels = TLP_treatment_labels
+  ) +
+  scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  facet_grid(season~depth_cm,
+             labeller = labeller(depth_cm = depth_labels))+
+  labs(
+    title = "2025-2026 Temperature",
+    x = "TLP treatment addition",
+    y = "Temperature  (°C)"
+  ) +
+  theme_light(base_size = 25) +  theme(legend.position = "none") 
+
+ggsave("../../figures/enviro/all_temp.pdf", plot = x.temp, units = "in", dpi = 300, width = 7, height = 11, bg = "white")
+ggsave("../../figures/enviro/all_temp.png", plot = x.temp, units = "in", dpi = 300, width = 7, height = 11, bg = "white")
+
+```
+# qpcr
 
 ```{r}
 ##### Libraries #####
@@ -615,57 +779,112 @@ sediment_labels  = c("15" = "15 cm",
 
 ### run 1
 
-qpcr <- read_csv("../../data/genomic/qPCR/20260910_TLP_priorityA_run1/20260910_TLP_priorityA_run1_Results_20260911_084712.csv", skip= 24) |> 
+qpcr1 <- read_csv("../../data/genomic/qPCR/20260910_TLP_priorityA_run1/20260910_TLP_priorityA_run1_Results_20260911_084712.csv", skip= 24) |>
   mutate(
-    sample = Sample) |> 
-  mutate(
-    sample_id = str_extract(sample, "^TLP\\d+"),
-    replicate = as.numeric(str_extract(sample, "(?<=_)\\d+$"))
+    sample_id = str_extract(Sample, "^TLP\\d+"),
+    replicate = as.numeric(str_extract(Sample, "(?<=_)\\d+$"))
   ) |> 
   mutate(
     run_type = case_when(
-      str_detect(sample, "^STD") ~ "Standard",
+      str_detect(Sample, "^STD") ~ "Standard",
       TRUE                     ~ "Sample"
     )
-  )
+  ) |> 
+  mutate(run_number = "run1")
+
+#run 2
+qpcr2 <- read_csv("../../data/genomic/qPCR/20260914_TLP_priorityA_run2/20260914_TLP_priorityA_run2_Results_20260914_160531.csv", skip= 24) |> 
+    group_by(Sample) |> 
+  mutate(
+    sample_id = Sample,
+    replicate = seq_along(Sample)) |> 
+  mutate(
+    run_type = case_when(
+      str_detect(Sample, "^STD") ~ "Standard",
+      TRUE                     ~ "Sample"
+    )
+  )|> 
+  mutate(run_number = "run2")
+
+qpcr3 <- read_csv("../../data/genomic/qPCR/20260914_TLP_priorityA_run3/20260914_TLP_priorityA_run3_Results_20260915_172557.csv", skip= 24) |> 
+    group_by(Sample) |> 
+  mutate(
+    sample_id = Sample,
+    replicate = seq_along(Sample)) |> 
+  mutate(
+    run_type = case_when(
+      str_detect(Sample, "^STD") ~ "Standard",
+      TRUE                     ~ "Sample"
+    )
+  )|> 
+  mutate(run_number = "run3")
+
+full_qpcr <- bind_rows(qpcr1, qpcr2, qpcr3) 
+```
+water content:
+```{r}
+wc <-  read_csv("../../data/enviro/sediment_meta_data/Hay_chpt3-flux(soil).csv") |>
+  left_join(adam_meta |> 
+  distinct(plot, TLP_treatment), by = "plot") |> 
+  mutate(year = format(date, "%Y"),
+         month_year = format(date, "%b%Y")) |> 
+  mutate(dry_sample = drypluspan - pan,
+         wet_sample = wetsample - pan, 
+         water_weight = wet_sample - dry_sample,
+         water_content = water_weight / wet_sample) |> 
+  group_by(TLP_treatment) |> 
+  summarise(mean_water_content= mean(water_content))
+
+
 
 ```
 
 
 ```{r}
-stds <- qpcr |> 
-  filter(run_type == "Standard") |> 
+stds_run <- full_qpcr |> 
+  filter(run_type == "Standard",
+         run_number %in% c("run1", "run3"
+         )) |> 
   mutate(
-    copies = as.numeric(sub("STD - ", "", sample))
+    copies = as.numeric(sub("STD - ", "", Sample))
   ) |> 
-  select(sample, copies, `Cq Mean`) |> 
-    group_by(sample, copies) %>%
+  select(Sample, copies, run_number, `Cq Mean`) |> 
+    group_by(Sample, copies, run_number) %>%
   summarise(
     Cq_mean = mean(`Cq Mean`, na.rm = TRUE),
     .groups = "drop"
-  )
+  ) 
 
-ggplot(stds, aes(x = copies, y = Cq_mean)) +
+ggplot(stds_run, aes(x = copies, y = Cq_mean)) +
   geom_point(size = 3) +
   scale_x_log10() +
   geom_smooth(
     method = "lm",
     se = FALSE
   ) +
+  facet_wrap(~run_number)+
   labs(
     x = "Copies (log10)",
     y = "Cq Mean"
   ) +
   theme_light(base_size = 16)
 
+stds_run1 <-  stds_run |> 
+  filter(run_number == "run1")
+stds_run3 <- stds_run |> 
+  filter(run_number == "run3")
 
-std_curve <- lm(Cq_mean ~ log10(copies), data = stds)
-slope <- coef(std_curve)[2]
-efficiency <- (10^(-1 / slope) - 1) * 100 #10^(-1/m) − 1
-efficiency
-int <- coef(std_curve)[1] #b
+std_curve1 <- lm(Cq_mean ~ log10(copies), data = stds_run1)
+std_curve3 <- lm(Cq_mean ~ log10(copies), data = stds_run3)
 
-summary(std_curve)
+slope1 <- coef(std_curve1)[2]
+slope3 <- coef(std_curve3)[2]
+
+efficiency1 <- (10^(-1 / slope1) - 1) * 100 #10^(-1/m) − 1
+efficiency3 <- (10^(-1 / slope3) - 1) * 100 #10^(-1/m) − 1
+
+int1 <- coef(std_curve1)[1] #b
+int3 <- coef(std_curve3)[1] #b
 
 ```
 
@@ -673,16 +892,34 @@ summary(std_curve)
 ```{r}
 #Concentration = 10^((Cq − b)/m)
 #
-qpcr_clean <-  qpcr |> 
-  filter(!sample %in% c("TLP37_1"))
-
-samples <- qpcr_clean %>%
-  filter(run_type == "Sample") %>%
-  group_by(sample_id) %>%
-  summarise(
-    Cq_mean = mean(`Cq Mean`, na.rm = TRUE),
-    Cq_se = sd(Cq)
+qpcr_clean <-  full_qpcr |> 
+    filter(run_type == "Sample",
+         !run_number == "run2",
+         !Sample == "NTC") |> 
+   mutate(
+     Cq = as.numeric(Cq),
+    slope = if_else(run_number == "run1", slope1,
+                    if_else(run_number == "run3", slope3, NA_real_)),
+    efficiency = if_else(run_number == "run1", efficiency1,
+                    if_else(run_number == "run3", efficiency3, NA_real_)),
+    int = if_else(run_number == "run1", int1,
+                    if_else(run_number == "run3", int3, NA_real_))
   ) |> 
+  filter_out(sample_id == "TLP37" & replicate == 1) |> 
+  filter_out(sample_id == "TLP134" & replicate == 1) |> 
+  filter_out(sample_id == "TLP149" & replicate == 3) |> 
+    filter_out(sample_id == "TLP168" & replicate == 3)
+
+#TLP134
+samples <- qpcr_clean %>%
+  filter(run_type == "Sample",
+         !run_number == "run2") |> 
+  filter(!Sample == "NTC") |> 
+  group_by(sample_id, run_number) %>%
+  summarise(
+    Cq_mean = mean(Cq, na.rm = TRUE),
+    Cq_se   = sd(Cq, na.rm = TRUE) / sqrt(n())
+  ) |>                                              
   mutate(
     copies_per_uL = 10^(
       (Cq_mean - int) /
@@ -691,50 +928,121 @@ samples <- qpcr_clean %>%
 
 samples_meta <- samples |> 
   left_join(meta, by = "sample_id") |> 
-  filter(!sample_id == "NTC") |> 
-  select(sample_id, date, plot, subplot, treatment, TLP_treatment, depth_cm, depth_cat,water_loss_percent, elution_volume, input_mass_mg,input_mass_mg_dry,
-         Cq_mean,Cq_se,copies_per_uL)
-
+  select(sample_id, date, month_year, year,run_number, plot, subplot, treatment, TLP_treatment, 
+         depth_cm, abs_start,abs_end,abs_mid,abs_range,depth_cat,
+         water_loss_percent, elution_volume, input_mass_mg,
+         Cq_mean,Cq_se,copies_per_uL) |> 
+  mutate(
+    depth_plotting = factor(
+      case_when(
+        depth_cat == "surface" | depth_cm == "0-5" ~ "surface",
+        TRUE ~ "at_depth"
+      ),
+      levels = c("surface", "at_depth")
+    )
+  ) |> 
+  left_join(wc, by = c("TLP_treatment"))
 
 
 ggplot(data = samples_meta)+ 
   geom_boxplot(aes(x = TLP_treatment  , y = copies_per_uL)) +
-  geom_point(aes(x = TLP_treatment  , y = copies_per_uL, color = Cq_se),
+  geom_jitter(aes(x = TLP_treatment  , y = copies_per_uL, color = run_number),
              size = 5) 
-# +
-#   facet_wrap(~depth_cat)
 
+samples_meta |> 
+  filter(Cq_se > .25)
 
 ggplot(data = samples_meta)+ 
   geom_boxplot(aes(x = TLP_treatment  , y = copies_per_uL)) +
   geom_point(aes(x = TLP_treatment  , y = copies_per_uL, color = depth_cat),
-             size = 5) 
+             size = 5) +
+  facet_wrap(~depth_plotting)
 
-ggplot(data = samples_meta)+ 
-  geom_boxplot(aes(x = TLP_treatment  , y = copies_per_uL)) +
-  geom_point(aes(x = TLP_treatment  , y = copies_per_uL, color = depth_cat),
-             size = 5)
 ```
 
 
 Normalizaiton 
 ```{r}
-template_ul        <- 2
+template_ul        <- 3
 dilution_factor    <- 10
-efficiency         <- .83
 
 samples_normalization <- samples_meta %>%
   mutate(
     original_copies_per_uL = (copies_per_uL * dilution_factor),
     orginal_copies_per_rxn = (original_copies_per_uL * template_ul), 
     elution_norm_cps = (orginal_copies_per_rxn * elution_volume),
-    copies_per_g = (elution_norm_cps) / (input_mass_mg/1000)
+    dry_input_g = ((input_mass_mg/1000) * (1-mean_water_content)),
+    copies_per_g_dry = ((elution_norm_cps) / dry_input_g)
   ) 
 
-ggplot(data = samples_normalization)+ 
-  geom_boxplot(aes(x = depth_cat  , y = copies_per_g))+
-  geom_point(aes(x = depth_cat  , y = copies_per_g, color = TLP_treatment))
+x.qpcr <- ggplot(data = samples_normalization,
+       aes(x = TLP_treatment  , y = copies_per_g_dry,
+           fill = TLP_treatment))+ 
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(width = 0.1,
+    size = 4, aes(color = month_year)) +
+   scale_color_manual(
+    name = "Sample date",
+    values = cols.monthyear,
+    labels = monthyear_labels
+  ) +
+  scale_fill_manual(
+    name = "TLP treatment addition",
+    values = cols.sediment.light,
+    labels = TLP_treatment_labels_legend
+  ) +
+  scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  facet_wrap(~depth_plotting,
+             labeller = labeller(depth_plotting = depth_labels_plot_cat))+
+    labs(
+    title = "Microbial abundance",
+    y = "Copies of 16S rRNA per g dry sediment"
+  ) +
+  theme_light(base_size = 25) 
+
+
+ggsave("../../figures/genomic/16sqpcr.pdf", plot = x.qpcr, units = "in", dpi = 300, width = 12, height = 11, bg = "white")
+ggsave("../../figures/genomic/16sqpcr.png", plot = x.qpcr, units = "in", dpi = 300, width = 12, height = 11, bg = "white")
+
+
+
+x.qpcr_faceted <- ggplot(data = samples_normalization,
+                         aes(x = TLP_treatment  , y = copies_per_g_dry,
+                             fill = TLP_treatment))+ 
+  geom_boxplot(outlier.shape = NA, alpha = 0.5) +
+  geom_jitter(width = 0.1, alpha = 0.9,
+              size = 4,
+              aes(color = TLP_treatment)) +
+  scale_color_manual(
+    name = "TLP_treatment addition",
+    values = cols.sediment,
+    labels = TLP_treatment_labels
+  ) +
+  scale_fill_manual(
+    name = "TLP treatment addition",
+    values = cols.sediment.light,
+    labels = TLP_treatment_labels_legend
+  ) +
+  scale_x_discrete(
+    labels = TLP_treatment_labels
+  ) +
+  facet_grid(depth_plotting~month_year,
+             labeller = labeller(depth_plotting = depth_labels_plot_cat))+
+  labs(
+    title = "Microbial abundance",
+    y = "Copies of 16S rRNA per g dry sediment"
+  ) +
+  theme_light(base_size = 25) 
+x.qpcr_faceted
+
+ggsave("../../figures/genomic/qpcr_faceted.pdf", plot = x.qpcr_faceted, units = "in", dpi = 300, width = 15, height = 11, bg = "white")
+ggsave("../../figures/genomic/qpcr_faceted.png", plot = x.qpcr_faceted, units = "in", dpi = 300, width = 15, height = 11, bg = "white")
 ```
+
+
+
 
 
 
